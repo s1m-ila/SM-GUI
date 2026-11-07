@@ -12,8 +12,33 @@ if(PROJECT_IS_TOP_LEVEL)
   endif()
 endif()
 
-add_subdirectory(../smpb smpb)
-add_subdirectory(../smgc smgc)
+# --- smpb ---
+if(NOT TARGET smpb::core)
+  if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/../smpb/CMakeLists.txt)
+    add_subdirectory(../smpb smpb)
+  else()
+    include(FetchContent)
+    FetchContent_Declare(smpb
+      GIT_REPOSITORY https://github.com/s1m-ila/SMPB.git
+      GIT_TAG        main
+    )
+    FetchContent_MakeAvailable(smpb)
+  endif()
+endif()
+
+# --- smgc ---
+if(NOT TARGET smgc::display2D)
+  if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/../smgc/CMakeLists.txt)
+    add_subdirectory(../smgc smgc)
+  else()
+    include(FetchContent)
+    FetchContent_Declare(smgc
+      GIT_REPOSITORY https://github.com/s1m-ila/SMGC.git
+      GIT_TAG        main
+    )
+    FetchContent_MakeAvailable(smgc)
+  endif()
+endif()
 
 # --- sm-gui::elements ---
 add_library(sm-gui_elements STATIC
