@@ -1,0 +1,6 @@
+build/*
+CLAUDE.md
+.claude/*
+.cache/*
+.vscode/*
+.git/*
