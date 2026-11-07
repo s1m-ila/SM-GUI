@@ -35,11 +35,11 @@
 - Готовые виджеты `Label`, `Button`, `Button2`, `Spacer` и контейнер `Layout` для `SMGC2D`. Все координаты и размеры — в пикселях окна, как в задачах SMGC.
 - Единая база `BaseWidget`: позиция, размер, минимальный размер, режим растяжения и флаг перерисовки. Виджеты не знают о задаче рисования — они вызывают `sendTask` сами.
 - Раскладка `Layout` двух направлений: горизонтальная и вертикальная. Распределяет свободное место между детьми по их режимам, умеет сжимать и растягивать, поддерживает перекрёстное заполнение.
-- Три режима растяжения (`Normal`, `Fixed`, `Minimal`, `Maximal`, `Extending`) — от «не трогать» до «забрать всё свободное место». Позволяют собирать как жёсткие панели, так и тянущиеся списки.
+- Пять режимов растяжения (`Normal`, `Fixed`, `Minimal`, `Maximal`, `Extending`) — от «не трогать» до «забрать всё свободное место». Позволяют собирать как жёсткие панели, так и тянущиеся списки.
 - Автоматический размер `Label` по тексту: `Label::setText` измеряет строку через `task_SmgcMeasureText` с текущим шрифтом `SMGC2D` и обновляет `minSize`, поэтому раскладка сама подгоняет размеры под содержимое.
 - Кнопки с состояниями. `Button` рисует объёмную «каменную» кнопку со скосами из треугольников; `Button2` — плоскую полосу с затемнением снизу. Оба подсвечиваются при наведении и «вдавливаются» при нажатии.
 - `Button::onClick` — функция обратного вызова, которая вызывается один раз на нажатие-отпускание внутри кнопки. Позволяет добавлять и удалять элементы прямо из обработчика.
-- Безопасное изменение списка детей из `onClick`: `push_back`, `push_back_penultimate`, `pop_back`, `insert`, `erase` кладут операцию в очередь, и она применяется на ближайшем `tick`. Итераторы не инвалидируются во время обработки.
+- Безопасное изменение списка детей из `onClick`: `push_back`, `push_back_penultimate`, `pop_back` кладут операцию в очередь, и она применяется на ближайшем `tick`. Итераторы не инвалидируются во время обработки.
 - Ранний выход из перерисовки. `Layout::needsRedraw()` возвращает `true` только когда что-то изменилось, поэтому сцену можно не пересобирать каждый тик.
 - Отладочный режим: `Spacer` рисует синюю полосу, чтобы видеть, куда раскладка отвела место. Включается общим флагом отладки ядра SMPB.
 - Работает только с `smgc::display2D`: использует `SMGC2D` и его задачи, но не трогает `SMGC` (3D).
@@ -82,11 +82,13 @@ cmake -S . -B build -G Ninja -DSM_GUI_BUILD_EXAMPLE=OFF
 cmake --build build
 ```
 
-Установка библиотеки, заголовков и CMake-пакета `sm-gui` в выбранный префикс:
+Установка собранной программы `sm-gui` в `bin/` выбранного префикса:
 
 ```bash
 cmake --install build --prefix /путь/установки
 ```
+
+Устанавливается только программа, и то лишь при включённой опции `SM_GUI_BUILD_EXAMPLE`. Библиотека, заголовки и CMake-пакет не устанавливаются: подключайтесь через `add_subdirectory` или `FetchContent`, как описано ниже.
 
 ## Подключение к другому проекту
 
@@ -145,17 +147,6 @@ add_executable(myapp main.cpp)
 target_link_libraries(myapp PRIVATE sm-gui::elements)
 smgc_copy_files(myapp)
 ```
-
-### Использование установленного пакета
-
-После `cmake --install` пакет `sm-gui` ищется через `find_package`:
-
-```cmake
-find_package(sm-gui REQUIRED)
-target_link_libraries(myapp PRIVATE sm-gui::elements)
-```
-
-Пакет сам подтягивает `smpb` и `smgc` через `find_dependency`, поэтому их тоже нужно установить.
 
 ### Заголовки
 
@@ -503,4 +494,213 @@ int main(int argc, char* argv[]) {
 | `Spacer(BaseComponent*, WidgetMode = spacerMode)` | Конструктор. |
 | `int draw() override` | В отладочном режиме ядра (`Core_isDebugModeEnabled()`) рисует синюю вертикальную полосу по центру (`task_SmgcDrawRect`). В обычном режиме ничего не делает. Возвращает `0` или `-ENOSYS`, если `component == nullptr`. |
 
-`Spacer` не имеет текста и по умолчанию растягивается: в вертикальной раскладке он забирает всю оставшуюся высоту, в горизонтальной
+`Spacer` не имеет текста и по умолчанию растягивается: в вертикальной раскладке он забирает всю оставшуюся высоту, в горизонтальной — всю оставшуюся ширину. Используется, чтобы прижать остальных детей к краю или разделить группы.
+
+### Layout
+
+`include/sm-gui/Layout.h`, `src/sm-gui/Layout.cpp` — наследник `BaseWidget`. Контейнер-раскладка.
+
+| Поле (private) | Тип | По умолчанию | Описание |
+|----------------|-----|--------------|----------|
+| `opQueue` | `std::vector<QueuedOp>` | пусто | Очередь отложенных операций |
+| `widgets` | `std::vector<std::unique_ptr<BaseWidget>>` | пусто | Дети в порядке отрисовки |
+| `prevHints` | `std::vector<glm::vec2>` | пусто | Кэш `minSize` детей для обнаружения изменений |
+| `indent` | `float` | `5.0f` | Отступ со всех сторон контейнера |
+| `space` | `float` | `3.0f` | Промежуток между детьми |
+| `vertical` | `bool` | `false` | Ориентация |
+| `redrawNeeded` | `bool` | `true` | Флаг «нужна перерисовка», который отдаёт `needsRedraw()` |
+
+| Метод | Описание |
+|-------|----------|
+| `Layout(BaseComponent* t_component, WidgetMode t_mode = layoutMode, bool t_vertical = false)` | Конструктор. |
+| `int setIndent(float t_indent)`, `int setSpace(float t_space)` | Задают отступ и промежуток. Возвращают `0`. |
+| `float getIndent()`, `float getSpace()` | Геттеры. |
+| `bool wantsCrossFill() const override` | Всегда `true`. |
+| `int tick(Mouse& mouse) override` | Вызывает `tick(mouse)` у каждого ребёнка, применяет очередь, проверяет изменения `minSize` и при необходимости вызывает `sort()`. Возвращает `0`. |
+| `int sort()` | Пересчитывает `minSize` и раскладывает детей. Возвращает `0`. |
+| `int push_back(std::unique_ptr<BaseWidget> widget)` | Кладёт операцию `PushBack` в очередь. Возвращает `0` или `-ENOSYS`, если `widget == nullptr`. |
+| `int push_back_penultimate(std::unique_ptr<BaseWidget> widget)` | Кладёт операцию `PushPenultimate` в очередь. Возвращает `0` или `-ENOSYS`. |
+| `int pop_back()` | Кладёт операцию `PopBack` в очередь. Возвращает `0`. |
+| `size_t count()` | Применяет очередь и возвращает число детей. |
+| `BaseWidget* operator[](size_t index)` / `const` | Применяет очередь и возвращает ребёнка или `nullptr`, если индекс за пределами. |
+| `int draw() override` | Применяет очередь и вызывает `draw()` у детей. Возвращает `0` или `-ENOSYS`, если `component == nullptr`. |
+| `bool needsRedraw()` | Возвращает текущее значение `redrawNeeded` и сбрасывает его в `false`. |
+| `iterator begin()`, `end()`, `const_iterator begin() const`, `end() const` | Итераторы по детям. Применяют очередь. |
+| `iterator erase(iterator pos)`, `erase(iterator first, iterator last)` | Удаляют **немедленно**, ставят `dirty` и `redrawNeeded`. Возвращают итератор на следующий элемент. |
+| `iterator insert(iterator pos, std::unique_ptr<BaseWidget> widget)` | Вставляет **немедленно**, ставит `dirty` и `redrawNeeded`. Возвращает итератор на вставленный элемент. |
+
+`Layout` также определяет вложенный `struct QueuedOp` с `enum class Kind { PushBack, PushPenultimate, PopBack }` и метод `flushPending()` (private), который применяет очередь и при необходимости расширяет `prevHints`.
+
+## Соглашения
+
+- **Коды возврата.** Как в smpb: `0` — успех, ошибки — отрицательный `errno`: `-ENOSYS` (нет `component`), `-EINVAL` (некорректный аргумент задачи).
+- **Логи.** Информационные сообщения и ошибки — в `std::clog` или `std::cerr`.
+- **Заголовки** подключаются с префиксом: `<sm-gui/X.h>`, `<smgc/X.h>`, `<smpb/X.h>`.
+- **Новые файлы** `.cpp` и `.h` добавляются в список исходников `CMakeLists.txt` вручную, поиска по маске нет.
+- **Новый виджет** наследует `BaseWidget` (или `Label` / `Button`), переопределяет `tick`, `draw`, при необходимости `wantsCrossFill`, и отправляет задачи через `component->sendTask(..., ID_SMGC)`.
+- **Новый режим** добавляется в `WidgetMode` и обрабатывается в `sort()` для растяжения, сжатия и поперечной оси.
+- **Изменение списка детей** — только через `push_back`, `push_back_penultimate` и `pop_back`, если это происходит внутри `onClick`. `insert` и `erase` — для немедленного применения вне обработчика.
+
+## Пример: сцена с раскладкой
+
+Сцена из `example/Scene2D.cpp`: вертикальная раскладка на всё окно, сверху `Spacer`, по центру фиксированная кнопка «I'M SUPER», под ней столбец из кнопок `Button2`. Фон — тёмно-серый, `O` включает и выключает каркас.
+
+```cpp
+#include <smpb/BaseComponent.h>
+#include <smpb/BaseTask.h>
+#include <smgc/display2D.h>
+#include <smgc/Mouse.h>
+
+#include <sm-gui/Layout.h>
+#include <sm-gui/Label.h>
+#include <sm-gui/Button.h>
+#include <sm-gui/Button2.h>
+#include <sm-gui/Spacer.h>
+
+#include <unordered_map>
+#include <vector>
+
+class Scene2D : public BaseComponent {
+public:
+    Scene2D() : BaseComponent("Scene2D") {}
+
+    int init() override {
+        ID_SMGC = Core_getComponentIdxByName("SMGC2D");
+        sendTask(std::make_unique<task_SmgcSubscribeKey>(GLFW_KEY_O), ID_SMGC);
+
+        layout = std::make_unique<Layout>(this, WidgetMode::Normal, true);
+        layout->setIndent(0.0f);
+        layout->setSpace(0.0f);
+        layout->push_back(std::make_unique<Spacer>(this));
+
+        auto layout2 = std::make_unique<Layout>(this);
+        layout2->setIndent(0.0f);
+        layout2->setSpace(0.0f);
+        auto btn = std::make_unique<Button>(this, WidgetMode::Fixed, "I'M SUPER");
+        btn->setMinSize(432.0f, 165.0f);
+        layout2->push_back(std::move(btn));
+        layout->push_back(std::move(layout2));
+
+        auto layout3 = std::make_unique<Layout>(this);
+        layout3->setIndent(0.0f);
+        layout3->setSpace(0.0f);
+        for (const auto& text : std::vector<std::string>{
+                 "Проекты", "Работа", "Режим дня", "Назначения", "Питомцы",
+                 "Фауна", "Технологии", "Задания", "Мир", "История", "Фракции"}) {
+            auto b = std::make_unique<Button2>(this, WidgetMode::Normal, text);
+            glm::vec2 sms = b->getMinSize();
+            b->setMinSize(sms.x, 34.0f);
+            layout3->push_back(std::move(b));
+        }
+        layout->push_back(std::move(layout3));
+
+        return sendTask(std::make_unique<task_SmgcSetOutline>(outlineEnabled), ID_SMGC);
+    }
+
+    int processTask(std::unique_ptr<BaseTask> task) override {
+        if (taskIs_SmgcKeyState(task->getIdx())) {
+            auto* typed = static_cast<task_SmgcKeyState*>(task.get());
+            pressedKeys[typed->key] = typed->pressed;
+            return 0;
+        }
+        return -EINVAL;
+    }
+
+    int tick(long long) override {
+        bool oPressed = isPressed(GLFW_KEY_O);
+        if (oPressed && !oWasPressed) {
+            outlineEnabled = !outlineEnabled;
+            sendTask(std::make_unique<task_SmgcSetOutline>(outlineEnabled), ID_SMGC);
+            dirty = true;
+        }
+        oWasPressed = oPressed;
+
+        sendTask(std::make_unique<task_SmgcGetWindowSize>(&width, &height), ID_SMGC);
+        Mouse mouse{};
+        sendTask(std::make_unique<task_SmgcGetMouse>(&mouse), ID_SMGC);
+
+        if (!layout->needsRedraw() && !(mouse != prevMouse) && !dirty &&
+            width == prevWidth && height == prevHeight)
+            return 0;
+
+        sendTask(std::make_unique<task_SmgcClearObjects>(), ID_SMGC);
+        sendTask(std::make_unique<task_SmgcDrawRect>(
+            glm::vec2{0.0f}, glm::vec2{width, height}, glm::vec4{0.5f, 0.5f, 0.5f, 1.0f}), ID_SMGC);
+
+        layout->setSize(width, height);
+        layout->setMinSize(width, height);
+        layout->tick(mouse);
+        layout->draw();
+
+        sendTask(std::make_unique<task_SmgcSwapObjects>(), ID_SMGC);
+
+        prevMouse = mouse;
+        prevWidth = width;
+        prevHeight = height;
+        dirty = false;
+        return 0;
+    }
+
+    void death() override {
+        sendTask(std::make_unique<task_SmgcUnsubscribeKey>(GLFW_KEY_O), ID_SMGC);
+    }
+
+private:
+    bool isPressed(int key) const {
+        auto it = pressedKeys.find(key);
+        return it != pressedKeys.end() && it->second;
+    }
+
+    int ID_SMGC = -1;
+    std::unordered_map<int, bool> pressedKeys{};
+    bool outlineEnabled = false;
+    bool outlineKeyWasPressed = false;
+    bool oWasPressed = false;
+    bool dirty = true;
+    std::unique_ptr<Layout> layout;
+    Mouse prevMouse{};
+    int width = 0, height = 0;
+    int prevWidth = 0, prevHeight = 0;
+};
+```
+
+Кадр пересобирается, только если изменилась раскладка, мышь, размер окна или пользователь переключил каркас клавишей `O`. В остальных случаях `tick` выходит сразу.
+
+## Структура проекта
+
+```
+sm-gui/
+├── CMakeLists.txt                Сборка библиотеки sm-gui::elements и программы sm-gui
+├── include/sm-gui/               Публичные заголовки библиотеки
+│   ├── BaseWidget.h                Базовый виджет, WidgetMode, шрифтовые и отладочные константы
+│   ├── Label.h                     Текст с автоматическим размером
+│   ├── Button.h                    Объёмная кнопка с состоянием и onClick
+│   ├── Button2.h                   Плоская кнопка с затемнением
+│   ├── Spacer.h                    Пустое место в раскладке
+│   └── Layout.h                    Контейнер-раскладка: очередь операций, сортировка, итераторы
+├── src/sm-gui/                   Реализация библиотеки
+│   ├── BaseWidget.cpp
+│   ├── Label.cpp
+│   ├── Button.cpp
+│   ├── Button2.cpp
+│   ├── Spacer.cpp
+│   └── Layout.cpp
+├── example/                      Программа sm-gui
+│   ├── main.cpp                    Точка входа: Config → SMGC2D → Scene2D
+│   ├── Scene2D.h
+│   └── Scene2D.cpp                 Вертикальная раскладка со Spacer, кнопкой и списком Button2
+├── files/
+│   └── core.config                 Пример конфигурации smpb
+├── build/                        Папка сборки (не входит в репозиторий)
+├── LICENSE
+└── README.md
+```
+
+## Лицензия
+
+[MIT](LICENSE) © 2026 s1m-ila
+
+Сторонние зависимости распространяются под своими лицензиями:
+
+- [SMPB](https://github.com/s1m-ila/SMPB) — MIT;
+- [SMGC](https://github.com/s1m-ila/SMGC) — MIT, включая шрифт DejaVu Sans и `third_party/stb`.

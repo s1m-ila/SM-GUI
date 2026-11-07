@@ -40,47 +40,6 @@ target_link_libraries(sm-gui_elements
     smgc::display2D
 )
 
-include(GNUInstallDirs)
-
-install(TARGETS sm-gui_elements
-    EXPORT sm-gui-targets
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-)
-
-install(DIRECTORY include/
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-)
-
-install(EXPORT sm-gui-targets
-    FILE sm-gui-targets.cmake
-    NAMESPACE sm-gui::
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/sm-gui
-)
-
-include(CMakePackageConfigHelpers)
-
-write_basic_package_version_file(
-    "${CMAKE_CURRENT_BINARY_DIR}/sm-gui-config-version.cmake"
-    VERSION 1.0.0
-    COMPATIBILITY SameMajorVersion
-)
-
-file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/sm-gui-config.cmake"
-"include(CMakeFindDependencyMacro)
-find_dependency(smpb CONFIG)
-find_dependency(smgc CONFIG)
-include(\"\${CMAKE_CURRENT_LIST_DIR}/sm-gui-targets.cmake\")
-")
-
-install(FILES
-    "${CMAKE_CURRENT_BINARY_DIR}/sm-gui-config.cmake"
-    "${CMAKE_CURRENT_BINARY_DIR}/sm-gui-config-version.cmake"
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/sm-gui
-)
-
 option(SM_GUI_BUILD_EXAMPLE "Build sm-gui example" ${PROJECT_IS_TOP_LEVEL})
 if(SM_GUI_BUILD_EXAMPLE)
   add_executable(sm-gui
@@ -91,6 +50,7 @@ if(SM_GUI_BUILD_EXAMPLE)
   set_target_properties(sm-gui PROPERTIES CXX_EXTENSIONS OFF)
   smgc_copy_files(sm-gui)
 
+  include(GNUInstallDirs)
   install(TARGETS sm-gui RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
   set(FILES
